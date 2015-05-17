@@ -13,96 +13,96 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 class ConnectionThread extends Thread{
-	Socket client;
-	static String INDEX_FILE_ROOT = "/Users/yoshikawamuga/Documents/html/";
+	Socket clientSocket;
+	static final String INDEX_FILE_ROOT = "/Users/yoshikawamuga/Documents/html/";
 	String type;
 	boolean keepAlive;
 	int threadNum;
-	String[] public_dir = new String[10];
-	public ConnectionThread(Socket c1, int num) throws SocketException{
-		this.client = c1;
+	String[] public_dir;
+	public ConnectionThread(Socket clientSock, int num) throws SocketException{
+		this.clientSocket = clientSock;
 		keepAlive = false;
 		this.threadNum = num;
+		this.public_dir = new String[10];
 		getPublicDirectory();
 		try{
-			this.client.setSoTimeout(30000);
-			this.client.setKeepAlive(true);
+			this.clientSocket.setSoTimeout(30000);
+			this.clientSocket.setKeepAlive(true);
 
 		}catch(SocketException e){
 			System.out.println(e);
 		}
-		//counter = c;
 	}
 	public void run(){
-		//get client's IP
-		String destIP = client.getInetAddress().toString();
-		//get client's Port
-		int destPort = client.getPort();
-		//		int readflag = 0;//if the program is in while(readr.ready)loop, it's 1
-
+		String destIP = clientSocket.getInetAddress().toString();
+		int destPort = clientSocket.getPort();
 		System.out.println("IP: " + destIP);
 		System.out.println("PORT: " + destPort);
 
 		try{
-			PrintStream outstream = new PrintStream(client.getOutputStream());
-			BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
-			int i = 0;
+			PrintStream clientSockOutStream = new PrintStream(clientSocket.getOutputStream());
+			BufferedReader clientSockInputBufReader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+			boolean isFirstLine = false;
 			boolean timeout = false;
 			String inputFilePath = "";
-			String responseFile = "";
-			String information = "";
-			while(i == 0 || this.keepAlive){
+			String responseFilePath = "";
+			String inputLineFromClient = "";
+			while(isFirstLine == false || this.keepAlive){
 
 				do{
 					try{
-						information = reader.readLine();
+						inputLineFromClient = clientSockInputBufReader.readLine();
 
-						if(i == 0 && information != null){
-							inputFilePath = getFilePath(information);
-							i++;
-						}else if(information!= null &&information.toUpperCase().contains("KEEP")){
+						if(isFirstLine == false && inputLineFromClient != null){
+							inputFilePath = getRequestedFilePath(inputLineFromClient);
+							isFirstLine = true;
+						}else if(inputLineFromClient!= null &&inputLineFromClient.toUpperCase().contains("KEEP")){
 							this.keepAlive = true;
 							System.out.println("it's gonna keeping alive");
 						}
-						if(information == null){
+						if(inputLineFromClient == null){
 							break;
 						}else{
-							System.out.println(information);
+							System.out.println(inputLineFromClient);
 						}
 					}catch(SocketTimeoutException e){
 						System.out.println("TIME OUT!!");
-						outstream.close();
+						clientSockOutStream.close();
 						timeout = true;
 						break;
 					}
-				}while(reader.ready());
-				i = 0;
+				}while(clientSockInputBufReader.ready());
+				isFirstLine = false;
 
 				if(timeout){
 					System.out.println("break cuz it's time out");
 					break;
 				}
-				if(information == null){
+				
+				if(inputLineFromClient == null){
+					System.out.println("input from client is null");
 					break;
 				}
 
 				if(inputFilePath.equals("/")){
 					this.type = "html";
-					responseFile = INDEX_FILE_ROOT + "index.html";
-				}else if(inputFilePath.contains("/") == false){//this condition is for "localhhost:80/test.html"
-					responseFile = INDEX_FILE_ROOT + inputFilePath;
+					responseFilePath = INDEX_FILE_ROOT + "index.html";
+				}else if(inputFilePath.contains("/") == false){
+					//this condition is for a file that is located in html dir 
+					//i.e. /Documents/html/test.html
+					responseFilePath = INDEX_FILE_ROOT + inputFilePath;
 				}else if(checkDirectory(inputFilePath) == false){
-					responseFile = INDEX_FILE_ROOT + "wrong_dir.html";
+					responseFilePath = INDEX_FILE_ROOT + "wrong_dir.html";
 				}else{
-					responseFile = INDEX_FILE_ROOT + inputFilePath;
+					responseFilePath = INDEX_FILE_ROOT + inputFilePath;
 				}
 
-				File file = new File(responseFile);
-				System.out.println(this.threadNum + ": " + file.getName() + " is requested");
-				sendfile(outstream, file);
-				outstream.flush();
+				File responseFile = new File(responseFilePath);
+				System.out.println("Thread #:" + this.threadNum + ": " + responseFile.getName() + " is requested");
+				sendfile(clientSockOutStream, responseFile);
+				clientSockOutStream.flush();
 				if(!this.keepAlive){
-					outstream.close();
+					clientSockOutStream.close();
 					continue;
 				}				
 
@@ -116,67 +116,76 @@ class ConnectionThread extends Thread{
 	//read file and write to browser
 	void sendfile(PrintStream stream, File file){
 		try{			
-			String response;			
+			String responseStr;			
 			if(file.exists()){				
-				DataInputStream in = new DataInputStream(new FileInputStream(file));
+				DataInputStream inputStream = new DataInputStream(new FileInputStream(file));
 				int len = (int)file.length();
 				byte buf[] = new byte[len];				
-				in.readFully(buf);
+				inputStream.readFully(buf);
+				
 				this.type = getFileType(file.getName());
+				
 				long lastMod = file.lastModified();
 				Date date = new Date();
 				SimpleDateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
-				response = "HTTP/1.1 200 OK \r\n" +					
+				
+				responseStr = "HTTP/1.1 200 OK \r\n" +					
 						"date: " + dateFormat.format(date) + "\r\n" +
 						"server: Muga's HTTP Server\r\n" +
 						"last-modified: " + dateFormat.format(lastMod) + "\r\n" +						
 						"content-length: " + len + "\r\n" +
 						"keep-alive: timeout=15, max=90\r\n" +
 						"connection: keep-alive\r\n" +
-						"content-type: " + this.type + "\r\n\n";						
-				stream.write(response.getBytes());				
+						"content-type: " + this.type + "\r\n\n";
+				
+				stream.write(responseStr.getBytes());				
 				stream.write(buf, 0, len);
 				stream.flush();
-				stream.write("".getBytes());
-				in.close();				
+				stream.write("".getBytes());//writes blank at the end
+				
+				inputStream.close();				
 			}else{
 				String responseFile = INDEX_FILE_ROOT + "notfound.html";
 				File err_file = new File(responseFile);
-				DataInputStream in_err = new DataInputStream(new FileInputStream(err_file));
+				DataInputStream inputStream = new DataInputStream(new FileInputStream(err_file));
 
-				int len2 = (int)err_file.length();
-				byte buf2[] = new byte[len2];
-				response = "HTTP/1.1 404 Not Found\r\n " + 
+				int len = (int)err_file.length();
+				byte buf[] = new byte[len];
+				inputStream.readFully(buf);
+				
+				responseStr = "HTTP/1.1 404 Not Found\r\n " + 
 						"content-length: 22\r\n" + 
-						"content-type: " + this.type + 
-						"\n\n" + "<h1>404 Nicht Gefuden</h1>";
-				stream.write(response.getBytes());
-				stream.write(buf2, 0, len2);
+						"content-type: " + "text/html" + 
+						"\n\n\n";
+				
+				stream.write(responseStr.getBytes());
+				stream.write(buf, 0, len);
 				stream.flush();
-				in_err.close();
+				stream.write("".getBytes());
+				
+				inputStream.close();
 			}
-			System.out.println("thread number: " + this.threadNum + " in Send File");
 
 		}catch(Exception e){
 			System.out.println("Error sending file in send file method");
-			//	System.exit(1);				
 		}
 	}
-	String getFilePath(String info){
-		String[] str = info.split(" ");
-		if(str[1].equals("/") ){
-			return str[1];
+	String getRequestedFilePath(String input){
+		String[] splitedStr = input.split(" ");
+		if(splitedStr[1].equals("/") ){
+			//in this case, input = "GET / HTTP/1.1"
+			return splitedStr[1];
 		}else{
-			String filePath = str[1].substring(1);
-			System.out.println("getFilePath: " + filePath);
+			//in this case, input = "GET /style.css HTTP/1.1"
+			String filePath = splitedStr[1].substring(1);
 			return filePath;
 		}
 	}
 	String getFileType(String filename){
-		String[] str = filename.split("\\.");
-		System.out.println("file type: " + str[1]);
+		String[] splitedStr = filename.split("\\.");
+		System.out.println("file type: " + splitedStr[1]);
 
-		String  ext= str[1];
+		String  ext = splitedStr[1];
 		if(ext.equals("html")){
 			return "text/html";
 		}else if(ext.equals("jpg")){
@@ -197,21 +206,20 @@ class ConnectionThread extends Thread{
 	void getPublicDirectory(){
 
 		try{
-			FileReader f = new FileReader(INDEX_FILE_ROOT + "public_direc.txt");
-			BufferedReader b = new BufferedReader(f);
-			String[] str;
-			String line;
-			int j = 0;
+			FileReader publicDirFileReader = new FileReader(INDEX_FILE_ROOT + "public_direc.txt");
+			BufferedReader fileBufReader = new BufferedReader(publicDirFileReader);
+			String[] splitedStr;
+			String lineTextFile;
+			int publicDirCounter = 0;
 
-			while((line = b.readLine()) != null){
-				//System.out.println(str);
-				str = line.split(" ");//split line with space
-				for(int i = 0; i < str.length; i++){
-					this.public_dir[j] =  str[i];
-					j++;
+			while((lineTextFile = fileBufReader.readLine()) != null){
+				splitedStr = lineTextFile.split(" ");//split line with space
+				for(int i = 0; i < splitedStr.length; i++){
+					this.public_dir[publicDirCounter] =  splitedStr[i];
+					publicDirCounter++;
 				}
 			}
-			b.close();		
+			fileBufReader.close();		
 		}catch(Exception e){
 			System.out.println(e);
 		}
@@ -219,24 +227,22 @@ class ConnectionThread extends Thread{
 	}
 
 	boolean checkDirectory(String filePath){
-		int found_flag;
-		String[] direc = filePath.split("/");
-		for(int i = 0; i < direc.length - 1; i++){
-			found_flag = 0;
+		boolean containsPublicDir;
+		String[] splitedPath = filePath.split("/");
+		for(int i = 0; i < splitedPath.length - 1; i++){
+			containsPublicDir = false;
 			for(int j = 0; j < public_dir.length; j++){
-				if(direc[i].equals(public_dir[j])){
-					found_flag = 1;
+				if(splitedPath[i].equals(public_dir[j])){
+					containsPublicDir = true;
 				}
 			}
-			if(found_flag == 0){
-				System.out.println("directory " + direc[i] + " doesn't exist in public ones");
+			if(!containsPublicDir){
+				System.out.println("wrong directory is accessed now");
 				return false;
-			}else if(i == direc.length - 2){
+			}else if(i == splitedPath.length - 2){
 				return true;
 			}
 		}
-		//System.out.println("check directory:file path is " + "filePath");
-		System.out.println("wrong directory is accessed now");
 		return false;
 	}
 

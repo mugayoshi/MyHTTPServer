@@ -7,49 +7,46 @@ import java.util.Date;
 
 
 public class myhttpserver {
-	static String INDEX_FILE_ROOT = "/Users/yoshikawamuga/Documents/html/";
+	static final String INDEX_FILE_ROOT = "/Users/yoshikawamuga/Documents/html/";
 	static int portNumber;
-	//	String[] public_dir = {"html", "html2", "direc1", "direc2"};
 
 	public static void main(String[] args) throws IOException{		
-		//int portNumber = Integer.parseInt(args[0]);
-		//		portNumber = getPort();//Integer.parseInt(args[0]);		
-		getPort();
-		ServerSocket server = null;
-		int i = 0;
+		getPortNum();
+		ServerSocket mainServer = null;
+		int numConnectionThread = 0;
 		try{
-			server = new ServerSocket(portNumber);
-			System.out.println("Server is listening on port " + server.getLocalPort());
+			mainServer = new ServerSocket(portNumber);
+			System.out.println("Server is listening on port " + mainServer.getLocalPort());
 			while(true){
-				Socket client = server.accept();
+				Socket client = mainServer.accept();
 
-				ConnectionThread ct = new ConnectionThread(client, i);
+				ConnectionThread ct = new ConnectionThread(client, numConnectionThread);
 				System.out.println("client port: " + client.getPort());
 
 				ct.start();
-				i++;
+				numConnectionThread++;
 			}			
 		}catch(Exception e){
 			System.out.println(e);
 		}
-	}//end of main
-	static void getPort(){
+	}
+	
+	public static void getPortNum(){
 		try{
-			FileReader f = new FileReader(INDEX_FILE_ROOT + "portnum.txt");
-			BufferedReader b = new BufferedReader(f);
-			String[] str;
-			String line;
+			FileReader portNumTextFile = new FileReader(INDEX_FILE_ROOT + "portnum.txt");
+			BufferedReader buffReaderTextFile = new BufferedReader(portNumTextFile);
+			String lineTextFile;
+			String[] splitedString;
+			
 
-			while((line = b.readLine()) != null){
-				//System.out.println(str);
-				str = line.split(" ");//split line with space
-				if(str[0].equals("PORT")){
-					portNumber =  Integer.parseInt(str[1]);
-					//	System.out.println(str);
+			while((lineTextFile = buffReaderTextFile.readLine()) != null){
+				splitedString = lineTextFile.split(" ");//split line with space
+				if(splitedString[0].equals("PORT")){
+					portNumber =  Integer.parseInt(splitedString[1]);
 					break;
 				}
 			}
-			b.close();		
+			buffReaderTextFile.close();		
 			System.out.println("Get Port: " + portNumber);
 		}catch(Exception e){
 			System.out.println(e);
